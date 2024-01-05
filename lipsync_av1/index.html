@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Lip Sync with Ready Player Me and Amazon Polly</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <script src="https://sdk.amazonaws.com/js/aws-sdk-2.844.0.min.js"></script>
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.7.3/dist/es-module-shims.js"></script>
+  <script type="importmap">
+      {
+          "imports":{
+              "three":"https://unpkg.com/three@0.145.0/build/three.module.js"
+          }
+
+      }
+
+  </script>
+  <script type="module">
+        import * as THREE from 'three';
+        import TWEEN from 'https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@18.5.0/dist/tween.esm.js';
+        import Stats from 'https://unpkg.com/three@0.145.0/examples/jsm/libs/stats.module.js';
+        import { OrbitControls } from 'https://unpkg.com/three@0.145.0/examples/jsm/controls/OrbitControls.js';
+        import { GLTFLoader } from 'https://unpkg.com/three@0.145.0/examples/jsm/loaders/GLTFLoader.js';
+        import { KTX2Loader } from 'https://unpkg.com/three@0.145.0/examples/jsm/loaders/KTX2Loader.js';
+        import { MeshoptDecoder } from 'https://unpkg.com/three@0.145.0/examples/jsm/libs/meshopt_decoder.module.js';
+        import { GUI } from 'https://unpkg.com/three@0.145.0/examples/jsm/libs/lil-gui.module.min.js';
+        let mesh;
+        let mixer;
+        let head;
+        let influences;
+        let gui;
+        let value;
+        let time;
+        let visemelistarr = [];
+        let currentRotation = 0;
+        const targetRotation = 0.001;
+
+        // Set the desired rotation speed (adjust as needed)
+        let rotationSpeed = 0.0001;
+        // Create a scene
+        const clock = new THREE.Clock();
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('black');
+        // create a camera, which defines where we're looking at
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        // tell the camera where to look
+        camera.position.set(0, 0, 10);
+        const ambientLight = new THREE.AmbientLight(0xffffff);
+        const pointLight = new THREE.PointLight(0xffffff); // White light
+        pointLight.intensity = 2;
+        pointLight.position.set(0, 8, 0);
+        scene.add(pointLight);
+        scene.add(ambientLight);
+
+    // Create a renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    function tick() {
+            requestAnimationFrame(tick);
+            renderer.render(scene, camera);
+        }
+        tick();
+        const controls = new OrbitControls(camera,renderer.domElement);
+        controls.addEventListener('change', () => {
+            renderer.render(scene,camera)
+           // labelRenderer.render(scene,camera)
+        });
+        controls.target.set(0,0,0);
+        controls.update();
+
+    // Load Ready Player Me mesh model
+    const ktx2Loader = new KTX2Loader()
+            .setTranscoderPath('jsm/libs/basis/')
+            .detectSupport(renderer);
+
+        new GLTFLoader()
+            .setKTX2Loader(ktx2Loader)
+            .setMeshoptDecoder(MeshoptDecoder)
+            .load('head.glb',(gltf) =>
+            {
+                mesh = gltf.scene;
+                mesh.position.set(-0.4,-14,0);
+                mesh.scale.set(24,24,24);
+                scene.add(mesh);
+                mixer = new THREE.AnimationMixer(mesh);
+                mixer.clipAction(gltf.animations[0]).play();
+                mixer.clipAction( gltf.animations[ 0 ] ).setDuration( 1 ).play();
+                renderer.render(scene,camera);
+                console.log(gltf.animations[0]);
+                const audioAttachJoint = mesh.getObjectByName('Wolf3D_Head');
+                head = mesh.getObjectByName( 'Wolf3D_Head' );
+                head.morphTargetInfluences[16] = 0.3; //Make the character smile a bit
+				        influences = head.morphTargetInfluences;
+
+
+				        gui = new GUI();
+				        gui.close();
+                //Blinking Animation
+                var blinkIndexLeft = 17;
+                var blinkIndexRight = 18;
+                var blinkDuration = 200; // milliseconds
+                var blinkInterval = 3000; // milliseconds
+
+                function blink() {
+                // Close the eyes
+                head.morphTargetInfluences[blinkIndexLeft] = 1;
+                head.morphTargetInfluences[blinkIndexRight] = 1;
+
+                setTimeout(function () {
+                  // Open the eyes
+                  head.morphTargetInfluences[blinkIndexLeft] = 0;
+                  head.morphTargetInfluences[blinkIndexRight] = 0;
+                }, blinkDuration);
+
+              }
+
+
+      
+
+
+				for ( const [ key, value ] of Object.entries( head.morphTargetDictionary ) ) {
+
+					gui.add( influences, value, 0, 1, 0.01 )
+						.name( key.replace( 'blendShape1.', '' ) )
+							.listen( influences );
+
+						}
+
+      // Create an AudioContext
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+
+const visemeBlendShapes = {
+  'viseme_sil': 1,   // Silence
+  'viseme_PP': 2,    // Plosive
+  'viseme_FF': 3,    // Fricative
+  'viseme_TH': 4,    // Theta
+  'viseme_DD': 5,    // Delta
+  'viseme_kk': 6,    // Kappa
+  'viseme_CH': 7,    // Chi
+  'viseme_SS': 8,    // Sigma
+  'viseme_nn': 9,    // Nasal
+  'viseme_RR': 10,    // Rho
+  'viseme_aa': 11,   // Open
+  'viseme_E': 12,    // E
+  'viseme_I': 13,    
+  'viseme_O': 14, 
+  'viseme_U': 15,       
+};
+
+
+function updateMouthMovementLess(phoneme, blendValue) {
+  const viseme = getViseme(phoneme);
+  const visemeBlendShapeIndex = visemeBlendShapes[viseme.toLowerCase()];
+
+  for (let i = 0; i < Object.values(visemeBlendShapes).length; i++) {
+    head.morphTargetInfluences[i] = 0;
+  }
+
+  if (visemeBlendShapeIndex !== undefined) {
+    head.morphTargetInfluences[visemeBlendShapeIndex] = blendValue;
+  }
+}
+function updateMouthMovementMore(phoneme) {
+  const viseme = getViseme(phoneme);
+  const visemeBlendShapeIndex = visemeBlendShapes[viseme];
+
+
+ for (let i = 0; i < Object.values(visemeBlendShapes).length; i++) {
+    head.morphTargetInfluences[i] = 0;
+ }
+
+
+  head.morphTargetInfluences[visemeBlendShapeIndex] = 1;
+}
+
+
+function getViseme(phoneme) {
+
+  const visemeMapping = {
+    'viseme_sil': ['sil'],
+    'viseme_PP': ['p', 'b', 'f', 'v'],
+    'viseme_FF': ['t', 'd', 's', 'z'],
+    'viseme_TH': ['th'],
+    'viseme_DD': ['dh'],
+    'viseme_KK': ['k', 'g'],
+    'viseme_CH': ['ch', 'jh'],
+    'viseme_SS': ['sh'],
+    'viseme_nn': ['m', 'n', 'ng'],
+    'viseme_RR': ['r'],
+    'viseme_aa': ['a', 'ao', 'ah'],
+    'viseme_E': ['eh', 'er']
+  };
+
+
+  for (const [viseme, phonemes] of Object.entries(visemeMapping)) {
+    if (phonemes.includes(phoneme)) {
+      return viseme;
+      console.log(viseme);
+    }
+  }
+  return 'sil';
+
+  }
+  //UI                                                                            UI                                                    UI
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.bottom = '0';
+      container.style.left = '0';
+      container.style.width = '100%';
+      container.style.display = 'flex';
+      container.style.alignItems = 'center';
+      container.style.justifyContent = 'flex-start';
+      container.style.backgroundColor = 'black';
+      container.style.padding = '10px';
+        // Add the button to the document
+      const textInput = document.createElement('textarea'); //Text Area
+      textInput.setAttribute('placeholder', 'Enter text');
+      textInput.setAttribute('rows', '4');
+      textInput.setAttribute('cols', '50');
+      textInput.style.marginRight = '10px';
+      textInput.style.border = '1px solid #ccc';
+      textInput.style.borderRadius = '4px';
+      textInput.style.padding = '6px';
+      textInput.style.textAlign = 'center';
+      //document.body.appendChild(textInput);
+
+      const button = document.createElement('button'); // Button
+      button.innerText = 'Synthesize Speech';
+      button.addEventListener('click', handleClick);
+      button.style.backgroundColor = 'gray';
+      button.style.color = 'white';
+      button.style.border = 'none';
+      button.style.padding = '10px 20px';
+      button.style.borderRadius = '4px';
+      button.style.cursor = 'pointer';
+      //document.body.appendChild(button);
+
+      container.appendChild(textInput);
+      container.appendChild(button);
+      document.body.appendChild(container);
+    //UI                                                                            UI                                                    UI                                                                     
+      function handleClick() {
+        const text = textInput.value;
+
+
+        AWS.config.accessKeyId = 'AKIATQ5ZKZSIKEN4XDM5';
+        AWS.config.secretAccessKey = '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';
+        AWS.config.region = 'eu-central-1';
+        const polly = new AWS.Polly();
+
+
+        const params = {
+          Text: '<speak>'+text+'</speak>',
+          SpeechMarkTypes:["viseme"],
+          OutputFormat: 'json',
+          TextType:'ssml',
+          VoiceId: 'Arthur',
+          Engine:'neural'
+        };
+  polly.synthesizeSpeech(params, function(err, data) {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    function downloadObjectAsJson(exportObj, exportName){ //Meta data download, call function if you want to check the metadata
+    var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj));
+    var downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href",     dataStr);
+    downloadAnchorNode.setAttribute("download", exportName + ".json");
+    document.body.appendChild(downloadAnchorNode); // required for firefox
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  } 
+
+    //downloadObjectAsJson(data,data);
+    console.log(data.AudioStream);
+    const dataArray = new Uint8Array(data.AudioStream);
+
+
+    const blob = new Blob([dataArray], { type: 'application/x-stream' });//conversion of audio to txt
+    console.log(blob);
+
+    const downloadLink = document.createElement('a');
+    downloadLink.href = URL.createObjectURL(blob);
+    //downloadLink.download = 'speechmarks.txt';
+    var reader = new FileReader();
+    for (let i = 0; i < Object.values(visemeBlendShapes).length; i++) {
+    head.morphTargetInfluences[i] = 0;
+    }
+    if(visemelistarr != 0)
+    {
+      visemelistarr.length = 0;
+    }
+    reader.onload = function(){
+      console.log(reader.result);
+      var contents = reader.result;
+      var lines = contents.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (line !== '') {
+        visemelistarr.push(line);
+      }
+    }
+    console.log(visemelistarr);
+    }
+    reader.readAsText(blob);
+    //downloadLink.click();
+});
+
+
+  const mp3Params = {
+    Text: text,
+    OutputFormat: 'mp3',
+    VoiceId: 'Arthur',
+    Engine:'neural'
+  };
+
+
+  polly.synthesizeSpeech(mp3Params, function(err, data) {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    console.log(data);
+
+
+    audioContext.decodeAudioData(data.AudioStream.buffer, function(buffer) {
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+
+      
+      source.connect(audioContext.destination);
+
+      // Start playing the audio
+      source.start();
+      console.log(mp3Params.Text.length);
+      if(mp3Params.Text.length <= 20)
+      {
+        for (var i = 0; i < visemelistarr.length; i++) {
+        //head.morphTargetInfluences[i] = 0;
+        var element = JSON.parse(visemelistarr[i]);
+        var time = element.time;
+        var type = element.type;
+        var value = element.value;
+        createTimeoutFunction(time, value);
+      }
+
+        const duration = 500; // Transition duration in milliseconds
+
+        function createTimeoutFunction(time, value) {
+          setTimeout(function() {
+            const startValue = 0.7;
+            const endValue = 1;
+            const startTime = Date.now();
+
+            function updateInfluence() {
+              const currentTime = Date.now() - startTime;
+              const elapsedRatio = Math.min(currentTime / duration, 1);
+              const interpolatedValue = lerp(startValue, endValue, elapsedRatio);
+              console.log(value + " " + interpolatedValue);
+              updateMouthMovementLess(value, interpolatedValue);
+
+              if (elapsedRatio < 1) {
+                requestAnimationFrame(updateInfluence);
+              } else {
+                // Transition completed, set the final value
+                updateMouthMovementLess(value, endValue);
+              }
+            }
+
+            updateInfluence();
+          }, time);
+        }
+      }
+      else if (mp3Params.Text.length > 20)
+      {
+          for (var i = 0; i < visemelistarr.length; i++) {
+          var element = JSON.parse(visemelistarr[i]);
+          var time = element.time;
+          var type = element.type;
+          var value = element.value;
+          createTimeoutFunction(time, value);
+        }
+        function createTimeoutFunction(time, value) {
+          setTimeout(function () {
+            updateMouthMovementMore(value);
+            console.log(value);
+          }, time);
+        }
+      }
+
+      function lerp(start, end, t) {
+        if (isNaN(start) || isNaN(end)) {
+          return 0.8; // Return a default value if start or end is not a number
+        }
+
+        return (1 - t) * start + t * end;
+      }
+      function smoothstep(min, max, t) {
+      if (isNaN(min) || isNaN(max)) {
+        return 0.8; // Return a default value if startValue or endValue is not a number
+      }
+
+      const x = Math.max(0, Math.min((t - min) / (max - min), 1));
+      return x * x * (3 - 2 * x);
+    }
+    function easeInOutQuad(t) {
+      return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    }
+    });
+  });} // Render loop
+  function animate() {
+    requestAnimationFrame(animate);
+    TWEEN.update();
+    currentRotation += rotationSpeed;
+
+    // Keep the rotation within the desired range
+    if (currentRotation > targetRotation || currentRotation < -targetRotation) {
+      rotationSpeed *= -1; // Reverse the rotation direction
+    }
+
+    // Set the rotation of the model
+    mesh.rotation.z = currentRotation;
+    // Render the scene
+    renderer.render(scene, camera);
+
+    if (Date.now() % blinkInterval < blinkDuration) {
+      blink();
+    }
+  }
+      //We all feel stupid sometimes! I hope you know that its ok to be bad at something you want to be good at! You'll get where you need to be in time. <3
+      animate();
+    });
+  </script>
+
+</body>
+</html>
